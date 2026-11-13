@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal.h"
 
@@ -13,7 +14,7 @@
 #include "LEPTON_OEM.h"
 #include "LEPTON_RAD.h"
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)

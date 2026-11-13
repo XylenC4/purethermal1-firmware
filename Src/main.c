@@ -48,11 +48,9 @@ DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
 #include "tasks.h"
 #include "project_config.h"
 #include "dbg_counters.h"
-
-typedef enum {
-	PT_BOARD_PT1,
-	PT_BOARD_PT2
-} pt_board_t;
+#include "ptboot.h"     /* pt_board_t, flash/RAM layout shared with the bootloader */
+#include "pt_debug.h"
+#include "version.h"
 
 pt_board_t pt_board;
 unsigned int pt_hse_value;
@@ -77,7 +75,7 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)
@@ -86,7 +84,9 @@ UART_HandleTypeDef huart2;
 static struct pt lepton_task_pt;
 static struct pt usb_task_pt;
 static struct pt uart_task_pt;
+#if defined(PT1_BUTTON_TASK)
 static struct pt button_task_pt;
+#endif
 static struct pt lepton_attribute_xfer_task_pt;
 
 /* USER CODE END PV */
@@ -134,6 +134,9 @@ extern void initialise_monitor_handles(void);
 int _write(int file, char *ptr, int len)
 {
   (void)file;
+#if defined(USB_DEBUG)
+  pt_debug_log_write(ptr, len);   /* tee into the USB-readable log ring */
+#endif
   if (HAL_UART_Transmit(&huart2, (uint8_t *)ptr, (uint16_t)len, 50) != HAL_OK)
     return -1;
   return len;
@@ -147,7 +150,16 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
+#if defined(PT_WITH_BOOTLOADER)
+  /* We are linked at PTAPP_BASE behind the USB DFU bootloader. SystemInit()
+   * reset VTOR to 0x08000000 (the bootloader's table); point it at ours
+   * before any interrupt can fire. */
+  SCB->VTOR = PTAPP_BASE;
+  __DSB();
+#endif
+
   board_detect();
+  pt_debug_init();
 
   /* USER CODE END 1 */
 
@@ -188,13 +200,17 @@ int main(void)
   huart2.Init.BaudRate = USART_DEBUG_SPEED;
   HAL_UART_Init(&huart2);
 
-#if defined(USART_DEBUG)
+#if defined(USART_DEBUG) || defined(USB_DEBUG)
   /* Unbuffered, so the last line before a hang actually reaches the wire
      instead of sitting in a stdio buffer that never gets flushed. */
   setvbuf(stdout, NULL, _IONBF, 0);
 #endif
 
   DEBUG_PRINTF("Hello, Lepton!\n\r");
+  DEBUG_PRINTF("fw %s (%s) board PT%d hse %u boot#%lu reset_flags 0x%08lx%s\r\n",
+               FW_VERSION, BUILD_GIT_SHA, pt_board == PT_BOARD_PT1 ? 1 : 2, pt_hse_value,
+               (unsigned long)PT_NOINIT->boot_count, (unsigned long)PT_NOINIT->reset_flags,
+               PT_NOINIT->fault.magic == PT_FAULT_MAGIC ? " LAST-BOOT-CRASHED" : "");
   fflush(stdout);
 
   lepton_init();
@@ -236,9 +252,16 @@ int main(void)
 #else
 	  PT_SCHEDULE(uart_task(&uart_task_pt));
 #endif
+#if defined(PT1_BUTTON_TASK)
+	  /* Disabled by default: on button-less clones PA4 floats/reads low, and
+	   * after 4 s the task cuts the Lepton power rails. Build with
+	   * PT1_BUTTON_TASK=1 to restore it on genuine PureThermal 1 boards. */
 	  if (pt_board == PT_BOARD_PT1) {
 	  PT_SCHEDULE(button_task(&button_task_pt));
 	  }
+#endif
+
+	  pt_debug_poll();
 
 	  PT_SCHEDULE(lepton_attribute_xfer_task(&lepton_attribute_xfer_task_pt));
   }

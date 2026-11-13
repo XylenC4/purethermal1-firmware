@@ -50,7 +50,7 @@ struct rgb_to_yuv_state {
   lepton_buffer *restrict rgb;
 };
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)

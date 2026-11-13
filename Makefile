@@ -25,7 +25,20 @@ CMSIS_DEVSUP = $(CMSIS)/Device/ST/$(DEVICE_FAMILY)/
 CMSIS_OPT = -D$(DEVICE_TYPE) -DUSE_HAL_DRIVER
 OTHER_OPT = "-D__weak=__attribute__((weak))" "-D__packed=__attribute__((__packed__))" 
 
+# --- build options (make VAR=0/1) -------------------------------------------
+# BOOTLOADER=1  link the app at 0x08008000 behind the USB DFU bootloader
+#               (bootloader/); BOOTLOADER=0 builds the classic standalone image.
+# USB_DEBUG=1   DEBUG_PRINTF -> log ring readable over USB (scripts/ptdbg.py)
+# PT1_BUTTON_TASK=1  re-enable the PT1 power button task (off: button-less clones)
+BOOTLOADER      ?= 1
+USB_DEBUG       ?= 1
+PT1_BUTTON_TASK ?= 0
+
+ifeq ($(BOOTLOADER),1)
+LDSCRIPT = ./STM32F411CEUx_APP.ld
+else
 LDSCRIPT = ./STM32F411CEUx_FLASH.ld
+endif
 
 SRCDIR := Src/
 INCDIR := Inc/
@@ -58,6 +71,15 @@ CFLAGS  = $(CPU) $(CMSIS_OPT) $(OTHER_OPT) -Wall -fno-common -fno-short-enums -O
 ifdef GDB_SEMIHOSTING
 	CFLAGS += -DGDB_SEMIHOSTING
 endif
+ifeq ($(BOOTLOADER),1)
+	CFLAGS += -DPT_WITH_BOOTLOADER
+endif
+ifeq ($(USB_DEBUG),1)
+	CFLAGS += -DUSB_DEBUG
+endif
+ifeq ($(PT1_BUTTON_TASK),1)
+	CFLAGS += -DPT1_BUTTON_TASK
+endif
 ifdef USART_DEBUG
 	USART_DEBUG_SPEED ?= 115200
 	CFLAGS += -DUSART_DEBUG -DUSART_DEBUG_SPEED=$(USART_DEBUG_SPEED)
@@ -87,6 +109,21 @@ OBJS = $(sort \
  $(SYSTEM_OBJ))
 
 all: $(BIN) print_vars
+
+# --- bootloader + combined image ---------------------------------------------
+# full.bin = bootloader padded to 32K + application: flash ONCE with ST-Link at
+# 0x08000000. Afterwards update over USB: scripts/ptdbg.py flash main.bin
+.PHONY: bootloader full flash-full
+bootloader:
+	@$(MAKE) -C bootloader
+
+full: $(BIN) bootloader
+	$(OBJCOPY) -I binary -O binary --pad-to=0x8000 --gap-fill=0xFF bootloader/bootloader.bin full.bin.tmp
+	cat full.bin.tmp $(BIN) > full.bin && rm -f full.bin.tmp
+	@echo "full.bin: bootloader + app, flash at 0x08000000"
+
+flash-full: full
+	st-flash --reset write full.bin 0x08000000
 
 reset:
 	$(OCD) -c init -c "reset run" -c shutdown
@@ -159,7 +196,8 @@ clean:
 	@$(MAKE) -C $(MDLDIR) clean
 	-rm Inc/version.h
 	-rm -f $(OBJS)
-	-rm -f main.list main.out main.hex main.map main.bin .depend
+	-rm -f main.list main.out main.hex main.map main.bin .depend full.bin
+	-@$(MAKE) -C bootloader clean
 
 depend dep: .depend
 
