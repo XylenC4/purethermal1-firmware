@@ -10,6 +10,7 @@
 #include "tmp007_i2c.h"
 #include "usbd_uvc.h"
 #include "usbd_uvc_if.h"
+#include "ugui.h"
 
 
 #include "tasks.h"
@@ -36,7 +37,7 @@ static lepton_buffer *last_buffer;
 // sending malformed frames" without needing a USB capture.
 volatile uint32_t g_uvc_xmit_timeouts = 0;   // gave up on a packet (host not draining EP)
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)

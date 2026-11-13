@@ -21,7 +21,7 @@
 #include "crc16.h"
 #include "custom_uvc_i2c.h"
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)
@@ -620,7 +620,7 @@ PT_THREAD( lepton_attribute_xfer_task(struct pt *pt))
 						result = LEP_I2C_MasterWriteData( hport_desc.portID,
 													     hport_desc.deviceAddress,
 														 custom_uvc.direct.address,
-														 custom_uvc.direct.data,
+														 (LEP_UINT16 *)custom_uvc.direct.data,
 														 custom_uvc.direct.length >> 1);
 
 		                PT_YIELD(pt);

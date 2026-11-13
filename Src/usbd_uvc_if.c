@@ -32,12 +32,13 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_uvc_if.h"
+#include "pt_debug.h"
 #include "usbd_uvc_lepton_xu.h"
 #include "lepton.h"
 #include "tasks.h"
 #include "uvc_desc.h"
 
-#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING)
+#if defined(USART_DEBUG) || defined(GDB_SEMIHOSTING) || defined(USB_DEBUG)
 #define DEBUG_PRINTF(...) printf( __VA_ARGS__);
 #else
 #define DEBUG_PRINTF(...)
@@ -279,6 +280,12 @@ static int8_t UVC_VC_ControlGet  (VC_TERMINAL_ID entity_id, uint8_t cmd, uint8_t
     DEBUG_PRINTF("UVC_VC_CONTROL_XU(%d)\r\n", entity_id);
 #endif
 
+    if (entity_id == VC_CONTROL_XU_LEP_CUST_ID) {
+      int dbg_status;
+      if (pt_debug_xu_get(cmd, cs_value, pbuf, length, &dbg_status))
+        return dbg_status == 0 ? USBD_OK : USBD_FAIL;
+    }
+
     memset(pbuf, 0, length);
     switch (cmd)
     {
@@ -403,6 +410,11 @@ static int8_t UVC_VC_ControlSet  (VC_TERMINAL_ID entity_id, uint8_t cmd, uint8_t
   case VC_CONTROL_XU_LEP_SYS_ID:
   case VC_CONTROL_XU_LEP_VID_ID:
   case VC_CONTROL_XU_LEP_CUST_ID:
+    if (entity_id == VC_CONTROL_XU_LEP_CUST_ID) {
+      int dbg_status;
+      if (pt_debug_xu_set(cmd, cs_value, pbuf, length, &dbg_status))
+        return dbg_status == 0 ? USBD_OK : USBD_FAIL;
+    }
 #ifdef UVC_VC_FORCE_SYNCHRONOUS
     if (length == 1)
       VC_LEP_RunCommand(entity_id, (cs_value - 1) << 2);
