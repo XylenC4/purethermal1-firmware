@@ -4,8 +4,8 @@ ptdbg - debug and update a PureThermal running the USB-DFU-enabled firmware.
 
 Talks to the vendor UVC extension unit (0xFE) of the running firmware and to the
 USB DFU bootloader (0483:df11). Needs pyusb + libusb
-(Linux: python3-usb; Windows: pip install pyusb libusb-package, device bound to
-WinUSB with Zadig).
+(Linux: python3-usb; Windows: pip install pyusb libusb-package, and bind the
+camera 1e4e:0100 and the bootloader 0483:df11 to WinUSB with Zadig once).
 
   ptdbg.py info                     firmware/board/uptime/reset cause
   ptdbg.py log [-f]                 read the firmware log (-f: follow)
@@ -25,6 +25,13 @@ import time
 
 import usb.core
 import usb.util
+
+# Windows: pyusb needs a libusb DLL; the "libusb-package" wheel ships one.
+try:
+    import libusb_package
+    _BACKEND = libusb_package.get_libusb1_backend()
+except ImportError:
+    _BACKEND = None
 
 APP_VID, APP_PID = 0x1E4E, 0x0100
 DFU_VID, DFU_PID = 0x0483, 0xDF11
@@ -64,7 +71,7 @@ def die(msg):
 def find(vid, pid, timeout=0.0):
     end = time.time() + timeout
     while True:
-        dev = usb.core.find(idVendor=vid, idProduct=pid)
+        dev = usb.core.find(idVendor=vid, idProduct=pid, backend=_BACKEND)
         if dev is not None or time.time() >= end:
             return dev
         time.sleep(0.2)
