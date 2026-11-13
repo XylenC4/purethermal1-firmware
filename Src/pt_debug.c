@@ -130,18 +130,26 @@ void pt_fault_capture(uint32_t *frame, uint32_t exc_return)
 /* memory peek                                                         */
 /* ------------------------------------------------------------------ */
 
-static int peek_allowed(uint32_t a, uint32_t len)
+/* Readable regions [start, end). A peek may start anywhere inside one and is
+ * zero-padded past its end, so small regions (UID, option bytes) can be read. */
+static const uint32_t peek_regions[][2] = {
+	{ 0x08000000u, 0x08080000u },   /* flash                         */
+	{ 0x20000000u, 0x20020000u },   /* SRAM                          */
+	{ 0x1FFF0000u, 0x1FFF7A24u },   /* system memory, OTP, UID, size */
+	{ 0x1FFFC000u, 0x1FFFC010u },   /* option bytes                  */
+	{ 0x40000000u, 0x40008000u },   /* APB1                          */
+	{ 0x40010000u, 0x40015800u },   /* APB2                          */
+	{ 0x40020000u, 0x40026800u },   /* AHB1 (GPIO, RCC, DMA)         */
+	{ 0xE000E000u, 0xE000F000u },   /* SCS (NVIC, SCB)               */
+};
+
+/* End of the readable region containing addr, or 0 if addr is not readable. */
+static uint32_t peek_region_end(uint32_t addr)
 {
-	uint32_t e = a + len;
-	if (e < a) return 0;
-	return (a >= 0x08000000u && e <= 0x08080000u) ||   /* flash          */
-	       (a >= 0x20000000u && e <= 0x20020000u) ||   /* SRAM           */
-	       (a >= 0x1FFF0000u && e <= 0x1FFF7A20u) ||   /* system memory + OTP + UID */
-	       (a >= 0x1FFFC000u && e <= 0x1FFFC010u) ||   /* option bytes   */
-	       (a >= 0x40000000u && e <= 0x40008000u) ||   /* APB1           */
-	       (a >= 0x40010000u && e <= 0x40015800u) ||   /* APB2           */
-	       (a >= 0x40020000u && e <= 0x40026800u) ||   /* AHB1 (GPIO, RCC, DMA) */
-	       (a >= 0xE000E000u && e <= 0xE000F000u);     /* SCS (NVIC, SCB) */
+	for (unsigned i = 0; i < sizeof(peek_regions) / sizeof(peek_regions[0]); i++)
+		if (addr >= peek_regions[i][0] && addr < peek_regions[i][1])
+			return peek_regions[i][1];
+	return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -247,15 +255,18 @@ int pt_debug_xu_get(uint8_t cmd, uint8_t cs, uint8_t *pbuf, uint16_t length, int
 		memcpy(pbuf, &peek_addr, length < 4 ? length : 4);
 		break;
 	case CUST_CONTROL_DBG_PEEK:
-		if ((peek_addr & 3) || !peek_allowed(peek_addr, length)) {
+	{
+		uint32_t region_end = peek_region_end(peek_addr);
+		if ((peek_addr & 3) || region_end == 0) {
 			*status = -1;
 			break;
 		}
-		for (uint16_t i = 0; i + 4 <= length; i += 4) {
+		for (uint16_t i = 0; i + 4 <= length && peek_addr + i + 4 <= region_end; i += 4) {
 			uint32_t w = *(volatile uint32_t *)(peek_addr + i);
 			memcpy(pbuf + i, &w, 4);
 		}
 		peek_addr += length;
+	}
 		break;
 	default:
 		*status = -1;

@@ -74,7 +74,7 @@ class App:
     """Running firmware: UVC extension-unit access on the VideoControl interface."""
 
     def __init__(self):
-        self.dev = find(APP_VID, APP_PID)
+        self.dev = find(APP_VID, APP_PID, 5.0)
         if self.dev is None:
             die("PureThermal (1e4e:0100) not found")
         self.detached = False
@@ -278,7 +278,9 @@ def enter_dfu():
     dev = find(DFU_VID, DFU_PID, 10.0)
     if dev is None:
         die("bootloader (0483:df11) did not appear. On Windows bind it to WinUSB with Zadig once.")
-    return dev
+    # Let enumeration settle (VM USB pass-through may re-attach the new device once).
+    time.sleep(1.5)
+    return find(DFU_VID, DFU_PID, 5.0) or dev
 
 
 class Dfu:
@@ -308,11 +310,19 @@ class Dfu:
             time.sleep(max(poll, 5) / 1000.0)
 
     def clear(self):
-        st, _, state = self.status()
-        if state == 10:
-            self.dev.ctrl_transfer(0x21, DFU_CLRSTATUS, 0, 0, None)
-        elif state != 2:
-            self.dev.ctrl_transfer(0x21, DFU_ABORT, 0, 0, None)
+        for attempt in range(5):
+            try:
+                st, _, state = self.status()
+                if state == 10:
+                    self.dev.ctrl_transfer(0x21, DFU_CLRSTATUS, 0, 0, None)
+                elif state != 2:
+                    self.dev.ctrl_transfer(0x21, DFU_ABORT, 0, 0, None)
+                return
+            except usb.core.USBError:
+                if attempt == 4:
+                    raise
+                time.sleep(1.0)
+                self.__init__(find(DFU_VID, DFU_PID, 5.0) or self.dev)
 
     def download(self, image):
         self.clear()
@@ -372,7 +382,7 @@ def cmd_flash(a):
     dfu.leave()
     if find(APP_VID, APP_PID, 15.0) is None:
         die("camera did not re-enumerate as 1e4e:0100")
-    time.sleep(1.0)
+    time.sleep(2.0)   # let enumeration settle before talking to it
     cmd_info(a)
 
 
