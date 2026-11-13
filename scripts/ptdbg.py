@@ -33,7 +33,7 @@ VC_IFACE = 0
 
 # extension-unit selectors (Inc/pt_debug.h)
 CS_INFO, CS_LOG, CS_COUNTERS, CS_FAULT, CS_PEEK_ADDR, CS_PEEK, CS_BOOT = range(7, 14)
-LEN = {CS_INFO: 64, CS_LOG: 64, CS_COUNTERS: 128, CS_FAULT: 72,
+LEN = {CS_INFO: 64, CS_LOG: 64, CS_COUNTERS: 128, CS_FAULT: 64,
        CS_PEEK_ADDR: 4, CS_PEEK: 64, CS_BOOT: 4}
 
 REQ_DFU = 0xDF00B007
@@ -190,7 +190,7 @@ def cmd_fault(a):
         b = app.get(CS_FAULT)
     finally:
         app.close()
-    f = struct.unpack("<18I", b[:72])
+    f = struct.unpack("<16I", b[:64])
     if f[0] != 0xFA017EAD:
         print("no crash recorded since power-on")
         return
