@@ -45,7 +45,7 @@ typedef struct {
 	uint32_t exc_return;   /* LR on handler entry                             */
 	uint32_t uptime_ms;    /* HAL tick at the time of the fault               */
 	uint32_t count;        /* faults since power-on                           */
-} pt_fault_t;              /* 18 words = 72 bytes */
+} pt_fault_t;              /* 16 words = 64 bytes */
 
 typedef struct {
 	uint32_t magic;        /* PT_NOINIT_MAGIC                                 */

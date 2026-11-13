@@ -11,7 +11,7 @@
  *     7      CUST_CONTROL_DBG_INFO    GET  64  pt_dbg_info_t (version, board, uptime ...)
  *     8      CUST_CONTROL_DBG_LOG     GET  64  [n][flags][n bytes of log text], consumes
  *     9      CUST_CONTROL_DBG_COUNTERS GET 128 struct dbg_counters (g_dbg), zero padded
- *    10      CUST_CONTROL_DBG_FAULT   GET  72  pt_fault_t from the last crash (if any)
+ *    10      CUST_CONTROL_DBG_FAULT   GET  64  pt_fault_t from the last crash (if any)
  *    11      CUST_CONTROL_DBG_PEEK_ADDR SET/GET 4  address for the next PEEK (4-aligned)
  *    12      CUST_CONTROL_DBG_PEEK    GET  64  64 bytes at PEEK_ADDR, then addr += 64
  *    13      CUST_CONTROL_DBG_BOOT    SET   4  PTBOOT_REQ_DFU -> reboot into USB DFU
@@ -31,7 +31,7 @@
 #define PT_DBG_INFO_LEN      64u
 #define PT_DBG_LOG_LEN       64u
 #define PT_DBG_COUNTERS_LEN  128u
-#define PT_DBG_FAULT_LEN     72u
+#define PT_DBG_FAULT_LEN     64u
 #define PT_DBG_PEEK_ADDR_LEN 4u
 #define PT_DBG_PEEK_LEN      64u
 #define PT_DBG_BOOT_LEN      4u
