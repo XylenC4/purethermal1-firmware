@@ -168,6 +168,7 @@ Inc/version.h: Makefile .git/HEAD .git/index
 	echo "#define VERSION_H" >> $@
 	echo "#define FW_VERSION \"$(FW_VERSION)\"" >> $@
 	echo "#define BUILD_GIT_SHA \"$(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)\"" >> $@
+	echo "#define BUILD_GIT_HASH \"$(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)\"" >> $@
 	echo "#define BUILD_DATE \"$(shell date "+%Y-%m-%d %H:%M:%S")\"" >> $@
 	echo "#endif" >> $@
 

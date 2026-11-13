@@ -187,7 +187,7 @@ static void fill_info(pt_dbg_info_t *info)
 	info->log_read = ni->log_read;
 	info->bootloader_version = have_bootloader() ? ni->bootloader_version : 0;
 	info->fault_count = (ni->fault.magic == PT_FAULT_MAGIC) ? ni->fault.count : 0;
-	memcpy(info->git_sha, BUILD_GIT_SHA, sizeof(info->git_sha));
+	memcpy(info->git_sha, BUILD_GIT_HASH, sizeof(info->git_sha));
 }
 
 int pt_debug_xu_get(uint8_t cmd, uint8_t cs, uint8_t *pbuf, uint16_t length, int *status)
