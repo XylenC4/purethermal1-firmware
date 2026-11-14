@@ -58,7 +58,8 @@ Tested on a **PureThermal 1 clone** (STM32F411CE, 14.318 MHz crystal, no buttons
 | Update over USB (`ptdbg.py flash`) | ✅ Linux host, several times |
 | `ptdbg.py` info / log / counters / peek / reset | ✅ Linux host |
 | UVC streaming on Windows (WinUSB + [Lepton-GetThermal](https://github.com/XylenC4/Lepton-GetThermal)) | ✅ |
-| `ptdbg.py` on Windows | not tested yet |
+| `ptdbg.py` on Windows: info / log / counters / fault / peek | ✅ (WinUSB, Python 3.15, pyusb + libusb-package) |
+| `ptdbg.py` on Windows: dfu / flash | not tested yet |
 | PT2 / Mini boards (8 MHz crystal) | Bootloader clock code included, **not tested on hardware** |
 | Crash record after a real HardFault | not triggered yet |
 
