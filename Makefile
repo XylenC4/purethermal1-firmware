@@ -36,8 +36,10 @@ PT1_BUTTON_TASK ?= 0
 
 ifeq ($(BOOTLOADER),1)
 LDSCRIPT = ./STM32F411CEUx_APP.ld
+APP_ADDR = 0x08008000
 else
 LDSCRIPT = ./STM32F411CEUx_FLASH.ld
+APP_ADDR = 0x08000000
 endif
 
 SRCDIR := Src/
@@ -129,11 +131,13 @@ reset:
 	$(OCD) -c init -c "reset run" -c shutdown
 	#$(GDB) main.out <reset.gdb
 
+# flash/debug write main.bin at APP_ADDR: behind the bootloader (BOOTLOADER=1, needs
+# the bootloader installed once via flash-full) or at 0x08000000 (BOOTLOADER=0).
 flash: $(BIN)
 	$(OCD) -f PureThermal1.cfg \
 	       -c "init" \
 	       -c "reset halt" \
-	       -c "flash write_image erase $(BIN) 0x08000000" \
+	       -c "flash write_image erase $(BIN) $(APP_ADDR)" \
 	       -c "reset run" \
 	       -c "shutdown" \
 	       || echo "ERROR: could not connect to target, please try again"
@@ -143,7 +147,7 @@ debug: $(BIN)
 	       -c "init" \
 	       -c "reset halt" \
 	       -c "arm semihosting enable" \
-	       -c "flash write_image erase $(BIN) 0x08000000" \
+	       -c "flash write_image erase $(BIN) $(APP_ADDR)" \
 	       -c "reset run" \
 	       || echo "ERROR: could not connect to target, please try again"
 
