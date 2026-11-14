@@ -57,3 +57,6 @@ scripts/ptdbg.py backup app.bin    # read the application region
 ```
 `dfu-util -d 0483:df11 -D main.bin -R` works as well.
 Windows: bind both `1e4e:0100` and `0483:df11` to WinUSB with Zadig once, then `pip install pyusb libusb-package`.
+
+## Contributors
+See [CONTRIBUTORS.md](CONTRIBUTORS.md). This fork was developed by XylenC4 together with Claude (Anthropic).

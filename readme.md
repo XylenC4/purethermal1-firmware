@@ -248,3 +248,7 @@ You should see print statements appear in the debugger console view.
 ## For More Information
 
 Refer to [PureThermal 1 development wiki](https://github.com/groupgets/purethermal1-firmware/wiki).
+
+## This fork
+
+This fork adds a USB DFU bootloader and a USB debug channel: see [README-usb-dfu-debug.md](README-usb-dfu-debug.md). Contributors: [CONTRIBUTORS.md](CONTRIBUTORS.md).
