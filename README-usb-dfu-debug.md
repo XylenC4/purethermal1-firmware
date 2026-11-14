@@ -58,5 +58,14 @@ scripts/ptdbg.py backup app.bin    # read the application region
 `dfu-util -d 0483:df11 -D main.bin -R` works as well.
 Windows: bind both `1e4e:0100` and `0483:df11` to WinUSB with Zadig once, then `pip install pyusb libusb-package`.
 
+## Commit hash reported by the firmware
+`ptdbg.py info` shows the short commit hash the firmware was built from, e.g. `1.3.1-dfu (5e67)`.
+The commits on `master` were re-authored after release (same content, new hashes), so older
+builds report a hash that is no longer on `master`. Those builds are tagged:
+
+| Reported | Tag | Same content on `master` |
+|---|---|---|
+| `5e67` | `camera-fw-5e67` (`5e676d2`) | `303d4ef` |
+
 ## Contributors
 See [CONTRIBUTORS.md](CONTRIBUTORS.md). This fork was developed by XylenC4 together with Claude (Anthropic).
