@@ -1,15 +1,212 @@
-# PureThermal 1/2/3/Mini/Pro Reference Firmware
+# PureThermal Firmware: USB DFU Bootloader + USB Debug
 
-[![Build Status](https://travis-ci.org/groupgets/purethermal1-firmware.svg?branch=master)](https://travis-ci.org/groupgets/purethermal1-firmware)
+A fork of the [GroupGets PureThermal reference firmware](https://github.com/groupgets/purethermal1-firmware)
+(1.3.1) for the PureThermal 1/2/Mini boards with a FLIR Lepton. It adds:
 
-The [PureThermal 1](https://groupgets.com/manufacturers/groupgets-labs/products/pure-thermal-1-flir-lepton-dev-kit), [PureThermal 2](https://groupgets.com/manufacturers/getlab/products/purethermal-2-flir-lepton-smart-i-o-module), and [PureThermal Mini](https://store.groupgets.com/products/purethermal-mini-flir-lepton-smart-i-o-module) series of boards are
-are an embedded development platform for the FLIR Lepton thermal imager, created by
-GroupGets's [GetLab](https://groupgets.com/manufacturers/getlab). It is based around the STM32F4, a powerful ARM Cortex-M MCU by ST Microelectronics, and its
-various IO capabilities as well as an open source firmware to make it easy integrate a FLIR Lepton into any environment.
+- **Firmware updates over USB on every board, including the PureThermal 1.** A small USB DFU
+  bootloader replaces the STM32 ROM bootloader, which cannot do USB DFU with the PT1's crystal.
+- **A USB debug channel** with no extra driver or cable: firmware log, counters, crash record,
+  memory peek, reboot and "enter DFU", read with [`scripts/ptdbg.py`](scripts/ptdbg.py).
+- **Support for button-less PT1 clones.** The power-button task is off by default; on clones
+  it cut the Lepton power after 4 s.
 
+The camera still works as a normal UVC webcam (`1e4e:0100`) with any viewer.
 
-Important Note
-============
+> **Warning:** In this fork `main.bin` is linked for **0x08008000**, behind the bootloader.
+> Never write it to 0x08000000. The flashing guides for the original firmware, including
+> `scripts/flash.sh` and the `.bat` files, assume 0x08000000. Use them only with a standalone
+> build (`BOOTLOADER=0`, see [below](#standalone-build-original-layout)).
+
+## Contents
+
+- [What's different from upstream](#whats-different-from-upstream)
+- [Status](#status)
+- [Quick start](#quick-start)
+- [Building](#building)
+- [Updating and debugging over USB](#updating-and-debugging-over-usb)
+- [Recovery](#recovery)
+- [Standalone build (original layout)](#standalone-build-original-layout)
+- [Debugging over SWD / UART](#debugging-over-swd--uart)
+- [Important note (from GroupGets)](#important-note-from-groupgets)
+- [Contributors](#contributors)
+
+## What's different from upstream
+
+| Area | Upstream 1.3.1 | This fork |
+|---|---|---|
+| Flash layout | App at 0x08000000 | Bootloader at 0x08000000 (32 KB), app at **0x08008000** (480 KB) |
+| USB update | PT2/Mini only (ROM DFU via BOOT button) | **All boards**, started by software (`ptdbg.py flash`), no button needed |
+| Failed update | Board bricked until reflashed | Reset vector is written last; an interrupted update stays in DFU mode |
+| Boot-loop guard | none | 3 starts without 5 s of stable running → stays in DFU |
+| Debug output | Semihosting (SWD) or UART | Also over **USB**: log ring (3 KB, survives reset), counters, crash record |
+| PT1 button task | On | Off (`PT1_BUTTON_TASK=1` re-enables it) |
+| Extension unit `bmControls` | Mask truncated to 8 bits | Fixed |
+| Toolchain | Older GCC | Also builds with **GCC 14** |
+| `make flash` / `make debug` | Writes to 0x08000000 | Writes to the app address of the build (0x08008000 by default) |
+
+Details: [README-usb-dfu-debug.md](README-usb-dfu-debug.md) (flash layout, boot rules, debug
+controls) and [`Inc/pt_debug.h`](Inc/pt_debug.h) (extension unit 0xFE, selectors 7-13).
+
+## Status
+
+Tested on a **PureThermal 1 clone** (STM32F411CE, 14.318 MHz crystal, no buttons) with a
+**Lepton 3.5**:
+
+| Item | Status |
+|---|---|
+| Bootloader + app, PT1 clock setup, Lepton streaming | ✅ Linux host (flashed via SWD and USB) |
+| Update over USB (`ptdbg.py flash`) | ✅ Linux host, several times |
+| `ptdbg.py` info / log / counters / peek / reset | ✅ Linux host |
+| UVC streaming on Windows (WinUSB + [Lepton-GetThermal](https://github.com/XylenC4/Lepton-GetThermal)) | ✅ |
+| `ptdbg.py` on Windows | not tested yet |
+| PT2 / Mini boards (8 MHz crystal) | Bootloader clock code included, **not tested on hardware** |
+| Crash record after a real HardFault | not triggered yet |
+
+## Quick start
+
+You need an **ST-Link** (SWD) **once**, to install the bootloader. All later updates go over USB.
+
+```bash
+# 1. Build (see "Building" for the toolchain)
+make full                                         # main.bin + full.bin (bootloader + app)
+
+# 2. Back up the firmware that is on the board now. Keep this file!
+st-flash read backup.bin 0x08000000 0x80000
+
+# 3. Install bootloader + app with the ST-Link
+make flash-full                                   # = st-flash --reset write full.bin 0x08000000
+
+# 4. From now on: update over USB, no ST-Link needed
+scripts/ptdbg.py info
+scripts/ptdbg.py flash main.bin
+```
+
+On Windows, install the WinUSB driver once before using `ptdbg.py` (see
+[Windows](#windows)).
+
+## Building
+
+This is a Makefile project using the GCC ARM Embedded toolchain (`arm-none-eabi-gcc`).
+
+**Toolchain**
+
+| Platform | Install |
+|---|---|
+| Debian / Ubuntu | `sudo apt install gcc-arm-none-eabi libnewlib-arm-none-eabi stlink-tools python3-usb` |
+| macOS | `brew install --cask gcc-arm-embedded` and `brew install stlink` |
+| Windows | [Arm GNU Toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads) (`arm-none-eabi`), `make` (e.g. MSYS2 or WSL), [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) for the ST-Link step |
+
+**Build**
+
+```bash
+git clone https://github.com/XylenC4/purethermal1-firmware
+cd purethermal1-firmware
+make            # main.bin  - application for 0x08008000 (USB updates)
+make full       # full.bin  - bootloader + application for 0x08000000 (ST-Link, once)
+```
+
+You can customize the build in `Inc/project_config.h`, and with these options
+(`make OPTION=value`):
+
+| Option | Default | Effect |
+|---|---|---|
+| `BOOTLOADER` | `1` | `1`: link the app behind the bootloader (0x08008000). `0`: classic standalone image at 0x08000000 |
+| `USB_DEBUG` | `1` | `DEBUG_PRINTF` output goes to the USB log ring (read with `ptdbg.py log`) |
+| `PT1_BUTTON_TASK` | `0` | `1`: re-enable the PT1 power-button task (only for boards that have the button) |
+| `USART_DEBUG` | off | `1`: printf over UART (`USART_DEBUG_SPEED`, default 115200) |
+| `GDB_SEMIHOSTING` | off | `1`: printf over SWD via GDB semihosting |
+
+The firmware reports its version and the short git commit it was built from (`ptdbg.py info`,
+e.g. `1.3.1-dfu (5e67)`).
+
+## Updating and debugging over USB
+
+`scripts/ptdbg.py` (Python 3 + pyusb) talks to the running firmware through the vendor UVC
+extension unit, and to the bootloader (`0483:df11`) during updates:
+
+```bash
+scripts/ptdbg.py info                    # firmware, board, crystal, uptime, reset cause
+scripts/ptdbg.py log -f                  # live firmware log
+scripts/ptdbg.py counters                # frame / resync / recovery counters
+scripts/ptdbg.py fault --elf main.out    # last crash: registers + source line
+scripts/ptdbg.py peek g_dbg --elf main.out   # read memory (flash, RAM, peripherals)
+scripts/ptdbg.py reset                   # reboot the camera
+scripts/ptdbg.py dfu                     # reboot into the bootloader
+scripts/ptdbg.py flash main.bin          # update: DFU -> write -> verify -> restart
+scripts/ptdbg.py backup app.bin          # read the application region
+```
+
+`dfu-util -d 0483:df11 -D main.bin -R` also works while the bootloader is active.
+`fault --elf` and `peek SYMBOL` need `arm-none-eabi-addr2line` / `nm` on the PATH; numeric
+addresses work without them.
+
+**When the bootloader stays in DFU mode** (USB `0483:df11`, LED blinks fast):
+
+- the application asked for it (`ptdbg.py dfu`), or
+- there is no valid application (for example after an interrupted update), or
+- the application crashed or reset 3 times before running for 5 s.
+
+In all three cases, flash a working `main.bin` with `ptdbg.py flash`. There's no rush, because
+the board stays in DFU mode until then.
+
+### Windows
+
+The camera works as a normal webcam out of the box. `ptdbg.py` and libusb-based viewers need
+the **WinUSB** driver instead:
+
+1. Install [Zadig](https://zadig.akeo.ie), plug in the camera.
+2. *Options → List All Devices*, untick *Ignore Hubs or Composite Parents*.
+3. Select **PureThermal (Composite Parent)** (`1E4E 0100`), choose **WinUSB**, *Replace Driver*.
+4. Run `scripts/ptdbg.py dfu` once. The camera re-appears as **PureThermal DFU bootloader**
+   (`0483 DF11`); bind that to **WinUSB** as well.
+5. `py -m pip install pyusb libusb-package`
+
+WinUSB lets only one program open the camera at a time, so close the viewer before running
+`ptdbg.py`. To get the webcam driver back: Device Manager → device → *Uninstall device*, tick
+*Delete the driver*, replug.
+
+## Recovery
+
+With an ST-Link you can always recover, whatever state the flash is in:
+
+| Goal | Command (`st-flash`, or STM32CubeProgrammer at the same address) |
+|---|---|
+| Back to the original firmware | `st-flash --reset write backup.bin 0x08000000` (your backup from the quick start) |
+| Reinstall this fork | `make flash-full`, or `st-flash --reset write full.bin 0x08000000` |
+| Upstream release | `st-flash --reset write pt1-vX.X.X.bin 0x08000000` from the [GroupGets releases](https://github.com/groupgets/purethermal1-firmware/releases) |
+
+Never write `main.bin` (built with `BOOTLOADER=1`) to 0x08000000.
+
+## Standalone build (original layout)
+
+`make BOOTLOADER=0` builds the classic image for 0x08000000, without the bootloader and the
+USB update path. The USB debug channel stays available (`USB_DEBUG=1`). All flashing methods
+of the original firmware work with this image:
+
+- **ST-Link:** `make BOOTLOADER=0 flash` (OpenOCD), or `st-flash --reset write main.bin 0x08000000`.
+- **ROM DFU (PT2 / Mini only):** hold BOOT, press and release RST, release BOOT (the LED dims),
+  then `dfu-util -a 0 -D main.bin -s 0x08000000` or `scripts/flash.sh`. On Windows use
+  `scripts/flash_dfu.bat` with the [win32 DFU tools](https://files.groupgets.com/purethermal/win32_dfu.zip).
+
+The PureThermal 1 has no working ROM USB DFU (its 14.318 MHz crystal isn't a whole MHz), so it
+needs the ST-Link for standalone images. That limitation is why this fork adds its own
+bootloader.
+
+## Debugging over SWD / UART
+
+The upstream debugging options are unchanged and work alongside the USB debug channel:
+
+- **Semihosting** (printf over SWD with an ST-Link or J-Link): `make GDB_SEMIHOSTING=1 debug`.
+  This flashes, starts the target and keeps OpenOCD attached; printf output appears in the
+  console. Run `make clean` first if you switch options. In Eclipse/OpenSTM32 projects, add
+  `monitor arm semihosting enable` to the debug configuration's initialization commands.
+- **UART:** `make USART_DEBUG=1`.
+- **Breakpoints:** GDB + OpenOCD with `PureThermal1.cfg`, or the included Eclipse project.
+
+More background: the upstream [PureThermal 1 development wiki](https://github.com/groupgets/purethermal1-firmware/wiki).
+
+## Important note (from GroupGets)
+
 GroupGets does not provide coding, firmware, or software support of any kind and will not respond to related requests. All software and firmware provided by GroupGets are offered solely as examples or potential starting points. These repositories may be outdated and are not guaranteed to function as intended. Forking this project and making your own modifications to this firmware is encouraged.
 
 We do not accept returns or offer replacements due to issues related to software, firmware, or code compatibility.
@@ -17,238 +214,11 @@ We do not accept returns or offer replacements due to issues related to software
 The software is provided "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and non-infringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software. Additionally Teledyne FLIR-provided source code is being released by GroupGets to this project under the
 express written consent of Teledyne FLIR, and covered by the project's license, with the expectation that no warranties or support of any kind will be provided by Teledyne FLIR. This firmware is licensed under The MIT License (MIT), see `LICENSE` file for details.
 
+This fork is not affiliated with or supported by GroupGets or Teledyne FLIR. Use it at your
+own risk, and keep a backup of your original firmware.
 
-## Building the Firmware
+## Contributors
 
-This is a Makefile-based project, and we use the GCC ARM Embedded toolchain from https://launchpad.net/gcc-arm-embedded/+download,
-however, other toolchains that work for the STM32 (such as Mentor's Sourcery toolchain) should also work.
-
-
-### Compiler Installation
-
-The following are compiler installation instructions for various platforms, required for building the firmware.
-
-
-#### Ubuntu 32/64-bit
-
-    sudo add-apt-repository ppa:terry.guo/gcc-arm-embedded
-    sudo apt-get update
-    sudo apt-get install gcc-arm-none-eabi
-
-
-#### OS X
-
-Launchpad has toolchain binaries for OS X. To keep things simple, we'll install then into `/usr/local/gcc-arm-none-eabi-*`
-
-    sudo mkdir -p /usr/local
-    curl -L https://launchpad.net/gcc-arm-embedded/4.9/4.9-2015-q3-update/+download/gcc-arm-none-eabi-4_9-2015q3-20150921-mac.tar.bz2 -o ~/Downloads/gcc-arm-embedded.tar.bz2
-    sudo tar xjf ~/Downloads/gcc-arm-embedded.tar.bz2 -C /usr/local && rm ~/Downloads/gcc-arm-embedded.tar.bz2
-
-Then you need to add this location to your path. Add to your .bashrc, or every time you open a new shell and wish to build execute:
-
-    export PATH=$PATH:/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin
-
-
-### Clone and Build
-
-    git clone https://github.com/groupgets/purethermal1-firmware
-    cd purethermal1-firmware
-
-If you wish, you can modify `Inc/project_config.h` to customize your build. Then you can simply build:
-
-    make
-
-or
-
-    make USART_DEBUG=1
-
-alternatively, you can enable semihosting support to printf over JTAG/SWD:
-
-    make GDB_SEMIHOSTING=1
-
-See the "Debugging" section below for more information.
-
-If you have [OpenOCD](http://openocd.org) installed (available in most package management systems), you can then flash
-the compiled firmware (see next section for required hardware):
-
-    make flash
-
-## Installing Release Firmware
-
-### PureThermal 1
-**Required Hardware**
-
-* [STLInk/V2](https://store.groupgets.com/collections/flir-lepton-accessories/products/st-link-v2)
-* [ARM MCU JTAG Adapter for PureThermal 1](https://groupgets.com/manufacturers/getlab/products/arm-mcu-jtag-adapter-for-purethermal-1)
-* [PureThermal 1 - FLIR Lepton Smart I/O Module](https://groupgets.com/manufacturers/getlab/products/purethermal-1-flir-lepton-smart-i-o-module)
-* Micro USB Cable
-
-**Hardware Instructions**
-
-1. Attach ribbon cable from STLINK/V2 into ARM Adapter.
-2. Plug in ribbon cable from ARM Adapter into PureThermal1's ZIF socket.
-3. Insert mini-usb cable into STLINK/V2 and computer.
-4. Insert micro-usb cable into PureThermal 1 and computer.
-5. Power on PureThermal 1 if not already on with ON/OFF button press.
-
-### Mac OS
-
-  * [Video Guide](https://www.youtube.com/watch?v=omKEBaMih5g)
-
-1. In terminal download and install the STLink software using homebrew:
-
-        brew install stlink
-
-2. Navigate to the folder which contains the PureThermal 1 firmware (pt1-vx.xx.x.bin), or build with the instructions above.
-3. Use the following command to erase the firmware on the PureThermal 1:
-
-        st-flash erase
-
-4. To write the firmware use one of the following commands (replace the X's with the version of firmware you have downloaded):
-
-        st-flash --reset write pt1-vX.XX.X.bin 0x08000000
-
-
-    Output of a Makefile build:
-
-        st-flash --reset write main.bin 0x08000000
-
-### Linux
-
-* See the [texane/stlink github page](https://github.com/texane/stlink) for detailed instructions for various Linux distributions. 
-
-### Windows
-
-  * [Video Guide](https://www.youtube.com/watch?v=epo64Zp7TsA)
-
-1. [Download the STM32 ST-LINK Utility](http://www.st.com/en/embedded-software/stsw-link004.html) (STSW-LINK004)
-2. Install STM32 ST-Link Utility and then open the software.
-3. Select "Target" then "Connect" to connect the software to the PureThermal 1.
-4. Next select "File" then "Open file...", now navigate to the folder which contains the PureThermal 1 firmware and select & open the firmware you want to flash (pt1-vX.XX.X.bin).
-5. Finally click "Target" then "Program & Verify...", make sure that the "Reset after programming" box is selected then press the "Start" button.
-
-### Installing firmware over USB via DFU-Mode (for PureThermal 2 & PureThermal Mini boards)
-
-Make sure you use at least 1.1.0 becuase earlier versions didn't support the PT1 and PT2 board from the same binary. 
-
-If you're not compiling from source you can download the firmware from [https://github.com/groupgets/purethermal1-firmware/releases](https://github.com/groupgets/purethermal1-firmware/releases) and substitute the .bin file in the tgz for main.bin in the commands below.
-
-#### Entering bootloader (DFU) mode
-
-
-1. Locate the buttons to press on your PureThermal board.
-2. While plugged in, press and hold the BOOT button.
-3. Without releasing BOOT, press and release RST.
-4. Release BOOT.
-5. When you successfully enter DFU mode, the indicator LED will stop blinking and dim to half brightness.
-
-#### Linux / MacOS
-
-Install dfu-util:
-
-    sudo apt-get install dfu-util
-
-or 
-
-    brew install dfu-util
-
-or your system's package manager. 
-
-Then run:
-
-    dfu-util -a 0 -D main.bin -s 0x08000000
-
-if you get an error "Invalid DFU suffix signature"
-
-run
-
-    dfu-util --list
-    
-You should see a list of DFU devices in or connected to your computer, such as the example below:
-
-    Found Runtime: [05ac:8290] ver=0161, devnum=2, cfg=1, intf=5, path="20-3", alt=0, name="UNKNOWN", serial="UNKNOWN"
-    Found DFU: [0483:df11] ver=2200, devnum=4, cfg=1, intf=0, path="20-1", alt=3, name="@Device Feature/0xFFFF0000/01*004 e", serial="3061B4493536"
-    Found DFU: [0483:df11] ver=2200, devnum=4, cfg=1, intf=0, path="20-1", alt=2, name="@OTP Memory /0x1FFF7800/01*512 e,01*016 e", serial="3061B4493536"
-    Found DFU: [0483:df11] ver=2200, devnum=4, cfg=1, intf=0, path="20-1", alt=1, name="@Option Bytes  /0x1FFFC000/01*016 e", serial="3061B4493536"
-    Found DFU: [0483:df11] ver=2200, devnum=4, cfg=1, intf=0, path="20-1", alt=0, name="@Internal Flash  /0x08000000/04*016Kg,01*064Kg,07*128Kg", serial="3061B4493536"
-
-If you are a large number of devices you can unplug the PureThermal board and run the dfu-util --list command again and compare the output.
-
-To specify a specific device to flash run (replace the ?? with the device id of the PureThermal board plugged into your comptuter)
-
-    dfu-util -a 0 -d ????:???? -D main.bin -s 0x08000000
-
-or use:
-
-    scripts/flash.sh
-
-#### Windows
-
-DfuSe USB drivers, on the page below under the "GET SOFTWARE" section at the bottom of the page.
-http://www.st.com/web/en/catalog/tools/FM147/CL1794/SC961/SS1533/PF257916#
-
-win32 DFU tools
-https://files.groupgets.com/purethermal/win32_dfu.zip
-
-To install DFU drivers, may need to use the device manager to select the st drivers.
-
-Extract `win32_dfu.zip` to the folder with your firmware. Then run the .bat file which you can [download from /scripts here](https://github.com/groupgets/purethermal1-firmware/tree/master/scripts)
-
-
-or use the following commands in CMD.
-
-CD to folder where you put the (.bin) firmware and extracted win32 DFU tools.
-
-    win32_dfu\bin2dfu --i main.bin --a 0x08000000 --o main.dfu
-    win32_dfu\DfuSeCommand -c -d --fn main.dfu
-
-
-
-
-## Debugging
-
-This section covers `printf` over JTAG/SWD though GDB semihosting. You can also set breakpoints using GDB+OpenOCD,
-or with using the provided Eclipse projects. Additionally, you can enable printf support over UART.
-
-### Makefile projects
-
-For Makefile projects, you can enable semihosting support to enable printf over JTAG/SWD. This works with STLink/V2,
-Segger JLink, and should work with others as well.
-
-You must build the code with semihosting support enabled (GDB_SEMIHOSTING=1). Note that if you get build errors,
-you might have to `make clean` and retry. Simply run the following:
-
-    GDB_SEMIHOSTING=1 make debug
-
-The debugger should remain attached, and you should see printf output on the console, like so:
-
-    ...
-    xPSR: 0x01000000 pc: 0x08010b8c msp: 0x20020000
-    semihosting is enabled
-    auto erase enabled
-    Info : device id = 0x10006431
-    Info : flash size = 512kbytes
-    wrote 131072 bytes from file main.bin in 4.133242s (30.968 KiB/s)
-    adapter speed: 2000 kHz
-    Info : JTAG tap: stm32f4x.cpu tap/device found: 0x4ba00477 (mfg: 0x23b (ARM Ltd.), part: 0xba00, ver: 0x4)
-    Info : JTAG tap: stm32f4x.bs tap/device found: 0x06431041 (mfg: 0x020 (STMicroelectronics), part: 0x6431, ver: 0x0)
-    Hello, Lepton!
-    reading_tmp007_regs...
-    Initialized...
-
-### Eclipse projects
-
-Semihosting also works in Eclipse/OpenSTM32 projects. To enable this, locate the target debug configuration for
-the project and add the following line to Initialization Commands in the Startup tab:
-
-    monitor arm semihosting enable
-
-You should see print statements appear in the debugger console view.
-
-## For More Information
-
-Refer to [PureThermal 1 development wiki](https://github.com/groupgets/purethermal1-firmware/wiki).
-
-## This fork
-
-This fork adds a USB DFU bootloader and a USB debug channel: see [README-usb-dfu-debug.md](README-usb-dfu-debug.md). Contributors: [CONTRIBUTORS.md](CONTRIBUTORS.md).
+The original firmware is by GroupGets / GetLab and Pure Engineering. This fork is by
+[XylenC4](https://github.com/XylenC4) together with Claude (Anthropic). See
+[CONTRIBUTORS.md](CONTRIBUTORS.md).

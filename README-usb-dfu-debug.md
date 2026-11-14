@@ -1,6 +1,6 @@
 # PureThermal firmware: USB DFU bootloader + USB debug channel
 
-Branch `usb-dfu-debug`, based on GroupGets firmware 1.3.1.
+Based on GroupGets firmware 1.3.1. Overview and quick start: [readme.md](readme.md).
 
 ## Why a custom bootloader
 The STM32F411's ROM bootloader detects the crystal automatically and needs a whole-MHz value for USB DFU.
